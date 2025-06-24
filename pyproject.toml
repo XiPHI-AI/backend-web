@@ -4,4 +4,26 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "alembic>=1.16.2",
+    "bcrypt>=4.3.0",
+    "fastapi>=0.115.13",
+    "neo4j>=5.28.1",
+    "numpy>=2.3.1",
+    "pandas>=2.3.0",
+    "passlib>=1.7.4",
+    "pgvector>=0.4.1",
+    "pydantic[email]>=2.11.7",
+    "pydantic-settings>=2.10.0",
+    "python-dotenv>=1.1.1",
+    "python-jose>=3.5.0",
+    "python-multipart>=0.0.20",
+    "scikit-learn>=1.7.0",
+    "spacy>=3.8.7",
+    "sqlalchemy>=2.0.41",
+    "torch>=2.7.1",
+    "transformers>=4.52.4",
+    "uvicorn>=0.34.3",
+    "asyncpg>=0.30.0",
+    "sentence-transformers>=4.1.0",
+]
