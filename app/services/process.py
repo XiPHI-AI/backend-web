@@ -17,6 +17,8 @@ def generate_embedding(text: str) -> list[float]:
     return embedding.tolist()
 
 
+
+
 async def find_or_create_skill_interest(db: AsyncSession, entity_name: str, entity_type: str) -> Dict[str, Any]:
     """
     Finds the closest existing skill/interest or creates a new one if no sufficient match.
@@ -26,51 +28,53 @@ async def find_or_create_skill_interest(db: AsyncSession, entity_name: str, enti
         entity_name: The raw skill or interest name provided by the user.
         entity_type: 'skill' or 'interest' (could be used for filtering in the future if needed)
     Returns:
-        A dictionary with 'skill_interest_id' (UUID string) and 'name' (normalized name).
+        A dictionary with 'interest_id' (UUID string) and 'name' (normalized name).
+        (Note: Renamed from skill_interest_id in return for consistency with 'interest' use-case)
     """
     embedding = generate_embedding(entity_name)
 
-    # Step 1: Vector search - top N by L2 similarity
-    vector_query = (
-        select(
-            SkillInterest.skill_interest_id,
-            SkillInterest.name,
-            SkillInterest.embedding
-        )
-        .order_by(SkillInterest.embedding.l2_distance(embedding))
-        .limit(5)
-    )
-    result = await db.execute(vector_query)
-    top_entities_from_vector = result.fetchall()
+    # Step 1: Exact lexical match
+    exact_match_query = select(SkillInterest).filter(SkillInterest.name == entity_name).limit(1)
+    exact_match_result = await db.execute(exact_match_query)
+    exact_entity_obj = exact_match_result.scalars().first()
 
     found_match = None
+    if exact_entity_obj:
+        found_match = exact_entity_obj
+        print(f"Found existing {entity_type} via exact match: {found_match.name}")
+    else:
+        # Step 2: Vector search if no exact match
+        vector_query = (
+            select(
+                SkillInterest.skill_interest_id,
+                SkillInterest.name,
+                SkillInterest.embedding
+            )
+            .where(SkillInterest.embedding.isnot(None)) # Only compare with entities that have embeddings
+            .order_by(SkillInterest.embedding.l2_distance(embedding))
+            .limit(5)
+        )
+        result = await db.execute(vector_query)
+        top_entities_from_vector = result.fetchall()
 
-    if top_entities_from_vector:
-        # Check for an exact lexical match among the top vector results or against the input directly
-        # This part ensures we prefer exact text matches.
-        # It's generally good to check for an exact match across the whole table if performance allows,
-        # or at least among the top semantic matches.
-        exact_match_query = select(SkillInterest).filter(SkillInterest.name == entity_name)
-        exact_match_result = await db.execute(exact_match_query)
-        exact_entity_obj = exact_match_result.scalars().first()
-
-        if exact_entity_obj:
-            found_match = exact_entity_obj
-            print(f"Found existing {entity_type} via exact match: {found_match.name}")
-        else:
-            # Fallback to top vector match if no exact lexical match
-            top_vector_match = top_entities_from_vector[0]
+        if top_entities_from_vector:
+            top_vector_match_row = top_entities_from_vector[0]
             # You might add a similarity threshold here: e.g., if L2 distance > X, treat as no match
-            found_match = top_vector_match
+            # For simplicity, just taking the top one for now.
+            found_match = top_vector_match_row
             print(f"Using top vector match for {entity_type}: {found_match.name}")
 
     if found_match:
-        # Ensure the embedding is returned correctly
-        embedding_list = found_match.embedding.tolist() if isinstance(found_match.embedding, np.ndarray) else list(found_match.embedding)
+        # This branch executes if either exact or vector match was found
+        # Ensure the embedding is returned correctly (from ORM object or Row object)
+        found_embedding = None
+        if hasattr(found_match, 'embedding') and found_match.embedding is not None:
+             found_embedding = found_match.embedding.tolist() if isinstance(found_match.embedding, np.ndarray) else list(found_match.embedding)
+
         return {
-            "skill_interest_id": str(found_match.skill_interest_id),
+            "skill_interest_id": str(found_match.skill_interest_id), # <<< CORRECTED KEY NAME HERE
             "name": found_match.name,
-            "embedding": embedding_list # Return embedding from the found match
+            "embedding": found_embedding # Return embedding from the found match
         }
     else:
         # No close match found (either vector search empty or no sufficiently close match)
@@ -79,17 +83,16 @@ async def find_or_create_skill_interest(db: AsyncSession, entity_name: str, enti
         new_entity = SkillInterest(
             skill_interest_id=new_id,
             name=entity_name,
+            category=entity_type, # IMPORTANT: Set the category if your SkillInterest table has it
             embedding=embedding # Use the embedding generated from the input
         )
         db.add(new_entity)
         await db.flush()
         return {
-            "skill_interest_id": str(new_id),
+            "skill_interest_id": str(new_id), # <<< CORRECTED KEY NAME HERE
             "name": entity_name,
             "embedding": embedding # Return the embedding of the newly created entity
         }
-
-
 # --- New functions for normalizing Companies and Job Roles (no change) ---
 
 async def find_or_create_company(db: AsyncSession, company_name: str) -> Dict[str, Any]:
@@ -219,3 +222,12 @@ async def find_or_create_location(db: AsyncSession, location_name: str) -> Dict[
             "name": location_name,
             "embedding": input_embedding
         }
+def parse_delimited_string(text: Optional[str]) -> List[str]:
+    """
+    Parses a comma-separated string into a list of stripped strings.
+    Handles None or empty strings gracefully.
+    """
+    if not text:
+        return []
+    # Split by comma, strip whitespace from each item, and filter out any empty strings
+    return [item.strip() for item in text.split(',') if item.strip()]

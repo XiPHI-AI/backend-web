@@ -18,6 +18,12 @@ import uuid
 import enum # For Python's enum.Enum
 import datetime # For datetime.datetime and datetime.timezone
 
+from typing import List, Optional
+from uuid import UUID
+
+from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID 
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 # No need for from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 # just use UUID if it's from sqlalchemy.dialects.postgresql
 # If you used PG_UUID in other files, ensure consistency.
@@ -598,14 +604,37 @@ class Event(Base):
         nullable=False
     )
     venue_details = Column(Text)
-    
+    presenter_reg_ids = Column(ARRAY(String))
+    exhibitor_reg_ids = Column(ARRAY(String))
+    speaker_reg_ids=Column(ARRAY(String))
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     organizer_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.user_id", ondelete="SET NULL") # Added ondelete
     )
+class EventTopic(Base):
+    __tablename__ = "event_topics" # Matches your SQL table name
 
+    # Columns corresponding to the junction table
+    event_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.event_id", ondelete="CASCADE"), # Links to events table's primary key
+        primary_key=True,
+        nullable=False
+    )
+    topic_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("skills_interests.skill_interest_id", ondelete="CASCADE"), # Links to skills_interests table's primary key
+        primary_key=True,
+        nullable=False
+    )
+
+    # Relationships to the parent models
+    # 'Event' here refers to your PgEvent model, and 'SkillInterest' to your skills_interests model
+    # These 'relationship' declarations on the junction table itself are less common if
+    # you're primarily defining the M2M on the parent models, but included for completeness.
+   
 
 class EventAttendance(Base):
     __tablename__ = "event_attendance"

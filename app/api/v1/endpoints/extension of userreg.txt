@@ -1,0 +1,8 @@
+  "email": row.get("email"), # Your provided Pydantic UserRegistrationBase has 'email'
+                    "organizer_supplied_first_name": row.get("first_name"), # CSV column 'first_name'
+                    "organizer_supplied_last_name": row.get("last_name"), # CSV column 'last_name'
+                    "organizer_supplied_job_title": row.get("job_title"), # CSV column 'job_title'
+                    "organizer_supplied_company_name": row.get("company_name"), # CSV column 'company_name'
+                    "organizer_supplied_city": row.get("city"), # CSV column 'city'
+                    "organizer_supplied_country": row.get("country"), # CSV column 'country'
+                    "organizer_supplied_role": row.get("organizer_role") # CSV column 'organizer_role'
