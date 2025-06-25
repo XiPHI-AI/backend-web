@@ -26,8 +26,8 @@ Individuals delivering talks, participating in panels, or leading workshops.
 - **Exhibitor**  
 Companies (sending individuals from their company) or individuals showcasing products/services.
 
- - **Staff**  
-People running the event operationally or programmatically.
+ - **Staff/Admin**  
+People running the event operationally or programmatically. / : resources that run / support the event programmatically (platform, data etc)
 
 
 
