@@ -74,8 +74,8 @@ async def startup_event():
         # print("PostgreSQL tables initialized (or verified).")
 
         # # 2. Initialize Neo4j Driver and GDS client
-        # await get_neo4j_async_driver() # Initialize the async Neo4j driver
-        # await initialize_gds() # Initialize GDS client and project graphs
+        await get_neo4j_async_driver() # Initialize the async Neo4j driver
+        await initialize_gds() # Initialize GDS client and project graphs
 
         # 3. Perform initial GDS graph and similarity refresh
         print("Performing initial GDS graph and similarity refresh on startup...")
