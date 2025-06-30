@@ -172,8 +172,6 @@ class BulkRegistrationUploadResponse(BaseModel):
     message: str
 
 class AttendeeClaimRegistrationRequest(BaseModel):
-    email: EmailStr
-    password: str
     reg_id: str = Field(..., min_length=1, max_length=100)
 
 class AttendeeClaimRegistrationResponse(BaseModel):

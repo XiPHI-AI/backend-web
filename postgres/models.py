@@ -178,14 +178,13 @@ class User(Base):
         nullable=False,
         server_default="infinity"
     )
-    email = Column(String(255), nullable=False, unique=True)
-    password_hash = Column(Text, nullable=False)
-    first_name = Column(Text, nullable=False)
-    last_name = Column(Text, nullable=False)
+    email = Column(String(255), nullable=True, unique=True)
+    password_hash = Column(Text, nullable=True)
+    first_name = Column(Text, nullable= True)
+    last_name = Column(Text, nullable=True)
     avatar_url = Column(Text)
     biography = Column(Text)
     phone = Column(Text)
-    reg_id = Column(String(255), nullable=True, unique=False) # reg_id is here as well
     registration_category = Column(
         Enum(
             RegistrationCategory,
@@ -237,7 +236,6 @@ class UserRegistration(Base):
         ForeignKey("conferences.conference_id", ondelete="CASCADE"),
         nullable=False
     )
-
     # Renamed/Added timestamp columns as per our schema
     registered_by_organizer_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     claimed_by_user_at = Column(DateTime(timezone=True), nullable=True) # Null until user claims it

@@ -68,14 +68,14 @@ async def startup_event():
     try:
         # 1. Initialize PostgreSQL tables (if not already done by migrations)
         # Ensure 'engine' and 'Base' are imported from app.db.database
-        from app.db.database import engine, Base # Local import to avoid circular dependency at top
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        print("PostgreSQL tables initialized (or verified).")
+        # from app.db.database import engine, Base # Local import to avoid circular dependency at top
+        # async with engine.begin() as conn:
+        #     await conn.run_sync(Base.metadata.create_all)
+        # print("PostgreSQL tables initialized (or verified).")
 
-        # 2. Initialize Neo4j Driver and GDS client
-        await get_neo4j_async_driver() # Initialize the async Neo4j driver
-        await initialize_gds() # Initialize GDS client and project graphs
+        # # 2. Initialize Neo4j Driver and GDS client
+        # await get_neo4j_async_driver() # Initialize the async Neo4j driver
+        # await initialize_gds() # Initialize GDS client and project graphs
 
         # 3. Perform initial GDS graph and similarity refresh
         print("Performing initial GDS graph and similarity refresh on startup...")

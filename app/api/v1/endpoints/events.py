@@ -401,26 +401,10 @@ async def upload_attendees_csv(
 )
 async def claim_registration(
     request_payload: AttendeeClaimRegistrationRequest,
-    db: AsyncSession = Depends(get_db) # Removed 'user: User = Depends(auth.get_current_active_user),' from dependencies
-                                        # as you fetch the user explicitly inside.
-                                        # If you intend to use 'auth.get_current_active_user' for authentication,
-                                        # you should keep it and potentially remove the manual user fetch.
-                                        # For now, I'm sticking to the provided code structure.
+    db: AsyncSession = Depends(get_db)
 ):
     try:
-        # --- 1. User Authentication ---
-        stmt = select(PgUser).filter(PgUser.email == request_payload.email)
-        result = await db.execute(stmt)
-        user = result.scalars().first()
-
-        if not user:
-            logger.warning(f"Login failed: User not found for email {request_payload.email}")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
-        if request_payload.password != user.password_hash: # TEMP: Insecure password check
-            logger.warning(f"Login failed for user {user.user_id}: Incorrect password.")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
-
-        # 2. Find Registration Record
+        # --- 1. Fetch Registration Record ---
         stmt_reg = select(UserRegistration).filter(
             UserRegistration.reg_id == request_payload.reg_id
         )
@@ -429,67 +413,50 @@ async def claim_registration(
 
         if not registration_record:
             logger.warning(f"Registration ID {request_payload.reg_id} not found.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration ID is invalid or does not exist.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid registration ID.")
 
-        # 3. Determine Action: Claim New or Confirm Existing
-        action_message = "" # Initialize action_message
-        if registration_record.user_id == user.user_id and registration_record.status == 'claimed':
-            action_message = "Logged in successfully. Registration already linked to your account."
-            # No changes to db needed, just confirmation
-        elif registration_record.user_id is not None:
-            logger.warning(f"Registration ID {request_payload.reg_id} already claimed by another user.")
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This registration ID has already been claimed by another account.")
-        elif registration_record.status != 'pre_registered':
+        # --- 2. Check Claim Status ---
+        if registration_record.user_id is not None:
+            logger.warning(f"Registration ID {request_payload.reg_id} already claimed.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This registration ID has already been claimed.")
+
+        if registration_record.status != 'pre_registered':
             logger.warning(f"Registration ID {request_payload.reg_id} status is '{registration_record.status}', not 'pre_registered'.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This registration ID is not currently available for claiming.")
-        else: # (registration_record.user_id is None and registration_record.status == 'pre_registered')
-            # Scenario D: Reg_id is UNCLAIMED and 'pre_registered' - Proceed with claiming
-            registration_record.user_id = user.user_id
-            registration_record.claimed_by_user_at = datetime.now(timezone.utc)
-            registration_record.status = 'claimed'
-            db.add(registration_record)
-            db.add(user) # User object might have been modified or just ensuring it's in the session.
-            await db.commit()
-            await db.refresh(registration_record)
-            await db.refresh(user)
-            action_message = "Registration successfully claimed and account linked."
-            logger.info(f"User {user.user_id} successfully claimed registration {request_payload.reg_id}.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration ID is not claimable.")
 
-        # --- Neo4j Sync (After Postgres Commit) ---
-        # 1. Update User node in Neo4j with regID and the canonical registration_category from YOUR system's user record
+        # --- 3. Create New User ---
+        new_user = PgUser(
+            user_id=uuid.uuid4()
+        )
+        db.add(new_user)
+        await db.flush()  # Needed to generate the ID before FK assignment
 
-        # Original problematic line:
-        # neo4j_user_props = {
-        #     "regID": str(request_payload.reg_id),
-        #     "registration_category": user.registration_category # This is the enum
-        # }
+        # --- 4. Claim the Registration ---
+        registration_record.user_id = new_user.user_id
+        registration_record.claimed_by_user_at = datetime.now(timezone.utc)
+        registration_record.status = 'claimed'
 
-        # --- FIX STARTS HERE ---
+        db.add(registration_record)
+        await db.commit()
+        await db.refresh(registration_record)
+        await db.refresh(new_user)
+
+        user = new_user
+        action_message = "User created and registration successfully claimed."
+
+        # --- 5. Update Neo4j User Node ---
         neo4j_user_props = {
             "regID": str(request_payload.reg_id),
         }
 
-        # Check if user.registration_category exists and is an instance of the enum
         if user.registration_category and isinstance(user.registration_category, RegistrationCategory):
             neo4j_user_props["registration_category"] = user.registration_category.name
-            logger.debug(f"Converting RegistrationCategory enum to string: {user.registration_category.name}")
-        else:
-            # Fallback if it's not an enum or is None, try to use it directly if it's already a string,
-            # or handle as appropriate for your schema (e.g., set to a default, or omit)
-            if user.registration_category is not None:
-                neo4j_user_props["registration_category"] = str(user.registration_category)
-            else:
-                # If registration_category can be None and you don't want to send it to Neo4j,
-                # you can simply omit it from neo4j_user_props here.
-                # If Neo4j requires it, set a default or raise an error.
-                pass # Or set a default like "unspecified" or handle the absence
-
-        # --- FIX ENDS HERE ---
+        elif user.registration_category:
+            neo4j_user_props["registration_category"] = str(user.registration_category)
 
         await update_user_node_neo4j(user_id=str(user.user_id), **neo4j_user_props)
-        logger.info(f"Neo4j: User node {user.user_id} updated with regID and registration_category.")
 
-        # 2. Link User to Conference (REGISTERED_FOR)
+        # --- 6. Link User to Conference ---
         stmt_conf = select(PgConference).filter(PgConference.conference_id == registration_record.conference_id)
         result_conf = await db.execute(stmt_conf)
         conference = result_conf.scalars().first()
@@ -502,82 +469,50 @@ async def claim_registration(
                 reg_id=request_payload.reg_id
             )
             conference_name_for_response = conference.name
-            logger.info(f"Neo4j: Linked User {user.user_id} to Conference {conference.conference_id}.")
 
-        # 3. Process Event Roles from PgEvent directly (No change in this block)
+        # --- 7. Role Matching for Events ---
         user_identifiers_to_match = [request_payload.reg_id]
-
-        #expertise_interests = None
-        #expertise_interest_id_map = None
-        #user_company_name = None
-
-        # --- CRITICAL FIX BLOCK: Build individual conditions for array matching ---
         role_match_conditions = []
-        for identifier in user_identifiers_to_match: # user_identifiers_to_match contains only one element, the reg_id
-            # For each identifier, create a condition to check if it's ANY of the values in the array column
-            role_match_conditions.append(PgEvent.presenter_reg_ids.any(identifier))
-            role_match_conditions.append(PgEvent.exhibitor_reg_ids.any(identifier))
-            role_match_conditions.append(PgEvent.speaker_reg_ids.any(identifier))
-            # Add other role identifier lists here if they exist on Event model (e.g., organizer_moderator_identifiers)
+        for identifier in user_identifiers_to_match:
+            role_match_conditions += [
+                PgEvent.presenter_reg_ids.any(identifier),
+                PgEvent.exhibitor_reg_ids.any(identifier),
+                PgEvent.speaker_reg_ids.any(identifier)
+            ]
 
         stmt_events_with_roles = select(PgEvent).filter(
             PgEvent.conference_id == registration_record.conference_id,
-            # Combine all the individual conditions with OR
-            or_(*role_match_conditions) # <--- THIS IS THE FIX FOR THE ARRAY PROBLEM
+            or_(*role_match_conditions)
         )
-        # --- END CRITICAL FIX BLOCK ---
 
         events_with_roles_result = await db.execute(stmt_events_with_roles)
         related_events = events_with_roles_result.scalars().all()
 
-        for event_with_role in related_events:
-            # When checking Python-side (after fetching from DB), you can use 'in' directly on the list
-            matched_reg_id = request_payload.reg_id # The single ID we are matching with
-            logger.info(f"DEBUG: Processing event {event_with_role.event_id} ({event_with_role.title}) for user {user.user_id}")
-            logger.info(f"DEBUG: User category: {user.registration_category.name}")
-            logger.info(f"DEBUG: Matched Reg ID: {matched_reg_id}")
-            logger.info(f"DEBUG: Event Presenter Reg IDs: {event_with_role.presenter_reg_ids}")
-            logger.info(f"DEBUG: Event Exhibitor Reg IDs: {event_with_role.exhibitor_reg_ids}")
-            logger.info(f"DEBUG: Event Speaker Reg IDs: {event_with_role.speaker_reg_ids}")
-            # Check if this user is a PRESENTER for this event AND their registration_category matches
+        for event in related_events:
+            matched_reg_id = request_payload.reg_id
+
             if user.registration_category == RegistrationCategory.presenter and \
-               event_with_role.presenter_reg_ids and \
-               matched_reg_id in event_with_role.presenter_reg_ids: 
-                logger.info(f"DEBUG: Presenter condition MET for event {event_with_role.event_id}!")# Direct Python check is correct here
+               event.presenter_reg_ids and matched_reg_id in event.presenter_reg_ids:
                 await create_presenter_event_link_neo4j(
                     presenter_user_id=str(user.user_id),
-                    event_id=str(event_with_role.event_id),
-                    #expertise_interests=expertise_interests,
-                    #expertise_interest_id_map=expertise_interest_id_map
+                    event_id=str(event.event_id)
                 )
-                logger.info(f"Neo4j: Linked User {user.user_id} as PRESENTING_AT event {event_with_role.event_id}.")
 
             elif user.registration_category == RegistrationCategory.exhibitor and \
-                 event_with_role.exhibitor_reg_ids and \
-                 matched_reg_id in event_with_role.exhibitor_reg_ids: # Direct Python check is correct here
-                logger.info(f"DEBUG: Exhibitor condition MET for event {event_with_role.event_id}!")
+                 event.exhibitor_reg_ids and matched_reg_id in event.exhibitor_reg_ids:
                 await create_exhibitor_event_link_neo4j(
                     exhibitor_user_id=str(user.user_id),
-                    event_id=str(event_with_role.event_id),
-                    #company_name=user_company_name
+                    event_id=str(event.event_id)
                 )
-                logger.info(f"Neo4j: Linked User {user.user_id} as EXHIBITING_AT event {event_with_role.event_id}.")
 
             elif user.registration_category == RegistrationCategory.speaker and \
-                 event_with_role.speaker_reg_ids and \
-                 matched_reg_id in event_with_role.speaker_reg_ids: # Direct Python check is correct here
-                logger.info(f"DEBUG: Speaker condition MET for event {event_with_role.event_id}!")
+                 event.speaker_reg_ids and matched_reg_id in event.speaker_reg_ids:
                 await create_speaker_event_link_neo4j(
                     speaker_user_id=str(user.user_id),
-                    event_id=str(event_with_role.event_id),
-                    #expertise_interests=expertise_interests,
-                    #expertise_interest_id_map=expertise_interest_id_map
+                    event_id=str(event.event_id)
                 )
-                logger.info(f"Neo4j: Linked User {user.user_id} as SPEAKS_AT event {event_with_role.event_id}.")
 
-            # TODO: Add similar checks for moderator, honored_person, honored_company etc.
-
-        await db.commit() # Final commit after potential linking
+        await db.commit()
         await db.refresh(user)
 
         return AttendeeClaimRegistrationResponse(
@@ -592,12 +527,11 @@ async def claim_registration(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error claiming registration for user {user.user_id} with reg_id {request_payload.reg_id}: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error during claim: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred during registration claim. Please try again."
+            detail="An unexpected error occurred. Please try again."
         )
-
 """"
 FOR CREATiNG SINGLE EVENt PER CONF
 @router.post("/conferences/{conference_id_from_url}/events/", response_model=EventRead, status_code=status.HTTP_201_CREATED)
