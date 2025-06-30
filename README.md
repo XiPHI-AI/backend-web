@@ -86,7 +86,26 @@ pytest
 black .
 flake8
 ```
+## 🛠️ Setup Instructions
 
+1. **Clone the repository**
+
+   ```bash
+   git clone <your-repo-url>
+   cd <project-folder>
+   ```
+
+2. Initialize the environment
+
+   ```bash
+   uv venv
+   ```
+
+3. **Sync dependencies**
+
+   ```bash
+   uv sync
+   ```
 ## 📝 License
 
 MIT License - see LICENSE file for details 
