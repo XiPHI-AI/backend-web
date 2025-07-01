@@ -170,12 +170,12 @@ class User(Base):
     )
     valid_from = Column(
         DateTime(timezone=True),
-        nullable=False,
+        nullable=True,
         server_default=func.now()
     )
     valid_to = Column(
         DateTime(timezone=True),
-        nullable=False,
+        nullable=True,
         server_default="infinity"
     )
     email = Column(String(255), nullable=True, unique=True)
