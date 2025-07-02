@@ -67,7 +67,6 @@ class UserRead(BaseModel):
     user_id: UUID
     email: EmailStr
     full_name: str
-    reg_id: Optional[str] = None
     registration_category: RegistrationCategory
     model_config = ConfigDict(from_attributes=True)
 
