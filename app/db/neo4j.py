@@ -196,8 +196,7 @@ async def refresh_gds_graphs_and_similarities():
 
 # --- Asynchronous Neo4j CRUD functions (UPDATED to use :Interest/:Topic labels based on context) ---
 
-async def create_user_node(user_id: str, fullName: str, email: str,
-                     first_name: str, last_name: str,
+async def create_user_node(user_id: str, full_name: str, email: str,
                      avatar_url: Optional[str] = None,
                      biography: Optional[str] = None,
                      phone: Optional[str] = None,
@@ -209,10 +208,8 @@ async def create_user_node(user_id: str, fullName: str, email: str,
         query = """
         CREATE (u:User {
             userID: $user_id,
-            fullName: $fullName,
+            full_name: $full_name,
             email: $email,
-            first_name: $first_name,
-            last_name: $last_name,
             avatar_url: $avatar_url,
             biography: $biography,
             phone: $phone,
@@ -221,11 +218,10 @@ async def create_user_node(user_id: str, fullName: str, email: str,
         })
         RETURN u
         """
-        await session.run(query, user_id=user_id, fullName=fullName, email=email,
-                           first_name=first_name, last_name=last_name,
+        await session.run(query, user_id=user_id, full_name=full_name, email=email,
                            avatar_url=avatar_url, biography=biography, phone=phone,
                            registration_category=registration_category, reg_id=reg_id)
-        print(f"Neo4j: Created User node for {fullName} (ID: {user_id})")
+        print(f"Neo4j: Created User node for {full_name} (ID: {user_id})")
 
 async def update_user_node_neo4j(user_id: str, **properties: Any):
     driver = await get_neo4j_async_driver()

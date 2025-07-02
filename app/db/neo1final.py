@@ -72,7 +72,7 @@ async def initialize_gds():
             'REGISTERED_FOR': {'orientation': 'UNDIRECTED'},
             'ATTENDS': {'orientation': 'UNDIRECTED'}, 
             'HAS_EVENT': {'orientation': 'UNDIRECTED'},
-            'ORGANIZES': {'orientation': 'UNDIRECTED'}
+            'ORGANIZES': {'orientation': 'UNDIRECTED'},
             'EXHIBITS_AT': {'orientation': 'UNDIRECTED'}, 
             'PRESENTS_AT': {'orientation': 'UNDIRECTED'} 
         }
@@ -220,8 +220,8 @@ async def refresh_gds_graphs_and_similarities():
 # --- Asynchronous Neo4j CRUD functions ---
 # Note: These are now called by API endpoints and use the async driver.
 
-async def create_user_node(user_id: str, fullName: str, email: str, 
-                     first_name: str, last_name: str, 
+async def create_user_node(user_id: str, email: str, 
+                           full_name: str,
                      avatar_url: Optional[str] = None, # Corrected type hint to HttpUrl
                      biography: Optional[str] = None, # Corrected type hint
                      phone: Optional[str] = None, # Corrected type hint
@@ -232,10 +232,8 @@ async def create_user_node(user_id: str, fullName: str, email: str,
         query = """
         CREATE (u:User {
             userID: $user_id,
-            fullName: $fullName,
             email: $email,
-            first_name: $first_name,
-            last_name: $last_name,
+            full_name: $full_name,
             avatar_url: $avatar_url,
             biography: $biography,
             phone: $phone,
@@ -243,11 +241,11 @@ async def create_user_node(user_id: str, fullName: str, email: str,
         })
         RETURN u
         """
-        await session.run(query, user_id=user_id, fullName=fullName, email=email,
-                           first_name=first_name, last_name=last_name,
+        await session.run(query, user_id=user_id, email=email,
+                           full_name = full_name,
                            avatar_url=avatar_url, biography=biography, phone=phone,
                            registration_category=registration_category)
-        print(f"Neo4j: Created User node for {fullName} (ID: {user_id})")
+        print(f"Neo4j: Created User node for {full_name} (ID: {user_id})")
 
 async def create_or_update_user_skill_neo4j(user_id: str, skill_name: str):
     driver = await get_neo4j_async_driver()

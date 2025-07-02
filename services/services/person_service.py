@@ -3,8 +3,8 @@
 # Standard imports
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone # Use timezone for consistent UTC now
-from uuid import UUID 
-
+from uuid import UUID
+import uuid
 import asyncio 
 
 # SQLAlchemy specific imports
@@ -54,8 +54,7 @@ class PeopleService:
             user_id=new_user_uuid,
             email=user_create_payload.email,
             password_hash=user_create_payload.password_hash,
-            first_name=user_create_payload.first_name,
-            last_name=user_create_payload.last_name,
+            full_name=user_create_payload.full_name,
             avatar_url=user_create_payload.avatar_url,
             biography=user_create_payload.biography,
             phone=user_create_payload.phone,
@@ -69,10 +68,8 @@ class PeopleService:
         # Call Neo4j node creation
         await create_user_node(
             user_id=str(new_user.user_id),
-            fullName=f"{new_user.first_name} {new_user.last_name}",
+            full_name=new_user.full_name,
             email=new_user.email,
-            first_name=new_user.first_name,
-            last_name=new_user.last_name,
             biography=new_user.biography # Pass biography here
         )
         
@@ -87,7 +84,7 @@ class PeopleService:
         return UserRead.from_orm(user_db)
 
 
-    async def update_person(self, user_id: UUID, update_data: UserUpdateSchema) -> Optional[UserRead]:
+    async def update_person(self, user_id: uuid, update_data: UserUpdateSchema) -> Optional[UserRead]:
         result = await self.db.execute(select(User).filter(User.user_id == user_id))
         user_db = result.scalars().first()
 

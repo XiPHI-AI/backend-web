@@ -20,7 +20,7 @@ from app.models.person import AttendeeClaimRegistrationRequest, AttendeeClaimReg
 # YOU MUST ADAPT THESE IMPORTS BASED ON YOUR ACTUAL POSTGRES MODEL FILE
 from postgres.models import Event as PgEvent # Your 'events' table model
 from postgres.models import Conference as PgConference # Your 'conferences' table model
-from postgres.models import User as PgUser # To link organizers/presenters/users
+from postgres.models import User # To link organizers/presenters/users
 from app.models.person import BulkRegistrationUploadResponse
 # Import Pydantic schemas for Conference and Event creation
 from app.models.person import ConferenceCreate, ConferenceRead, EventCreate, EventRead, EventType,UserRegistrationBase # Import EventType Enum
@@ -63,7 +63,7 @@ async def create_conference_api(conference_payload: ConferenceCreate, db: AsyncS
 
     organizer_pg_id = None
     if conference_payload.organizer_id:
-        organizer_result = await db.execute(select(PgUser).filter(PgUser.user_id == conference_payload.organizer_id))
+        organizer_result = await db.execute(select(User).filter(User.user_id == conference_payload.organizer_id))
         organizer_pg = organizer_result.scalars().first()
         if not organizer_pg:
             raise HTTPException(status_code=404, detail=f"Organizer User with ID {conference_payload.organizer_id} not found.")
@@ -390,7 +390,7 @@ async def upload_attendees_csv(
 
 
 @router.post(
-    "/api/v1/users/me/claim-registration",
+    "/api/v1/users/me/check-claim-status",
     response_model=AttendeeClaimRegistrationResponse,
     status_code=status.HTTP_200_OK,
     summary="Authenticate User and Claim Registration ID",
@@ -399,138 +399,54 @@ async def upload_attendees_csv(
     **(Currently uses plain-text password comparison for development)**
     """
 )
-async def claim_registration(
+async def check_registration_claim_status(
     request_payload: AttendeeClaimRegistrationRequest,
     db: AsyncSession = Depends(get_db)
 ):
     try:
         # --- 1. Fetch Registration Record ---
-        stmt_reg = select(UserRegistration).filter(
+        stmt = select(UserRegistration).filter(
             UserRegistration.reg_id == request_payload.reg_id
         )
-        result_reg = await db.execute(stmt_reg)
-        registration_record = result_reg.scalars().first()
+        result = await db.execute(stmt)
+        registration_record = result.scalars().first()
 
+        # --- 2. Handle Not Found ---
         if not registration_record:
-            logger.warning(f"Registration ID {request_payload.reg_id} not found.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid registration ID.")
-
-        # --- 2. Check Claim Status ---
-        if registration_record.user_id is not None:
-            logger.warning(f"Registration ID {request_payload.reg_id} already claimed.")
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This registration ID has already been claimed.")
-
-        if registration_record.status != 'pre_registered':
-            logger.warning(f"Registration ID {request_payload.reg_id} status is '{registration_record.status}', not 'pre_registered'.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration ID is not claimable.")
-
-        # --- 3. Create New User ---
-        new_user = PgUser(
-            user_id=uuid.uuid4()
-        )
-        db.add(new_user)
-        await db.flush()  # Needed to generate the ID before FK assignment
-
-        # --- 4. Claim the Registration ---
-        registration_record.user_id = new_user.user_id
-        registration_record.claimed_by_user_at = datetime.now(timezone.utc)
-        registration_record.status = 'claimed'
-
-        db.add(registration_record)
-        await db.commit()
-        await db.refresh(registration_record)
-        await db.refresh(new_user)
-
-        user = new_user
-        action_message = "User created and registration successfully claimed."
-
-        # --- 5. Update Neo4j User Node ---
-        neo4j_user_props = {
-            "regID": str(request_payload.reg_id),
-        }
-
-        if user.registration_category and isinstance(user.registration_category, RegistrationCategory):
-            neo4j_user_props["registration_category"] = user.registration_category.name
-        elif user.registration_category:
-            neo4j_user_props["registration_category"] = str(user.registration_category)
-
-        await update_user_node_neo4j(user_id=str(user.user_id), **neo4j_user_props)
-
-        # --- 6. Link User to Conference ---
-        stmt_conf = select(PgConference).filter(PgConference.conference_id == registration_record.conference_id)
-        result_conf = await db.execute(stmt_conf)
-        conference = result_conf.scalars().first()
-
-        conference_name_for_response = "Unknown Conference"
-        if conference:
-            await create_user_conference_registration_neo4j(
-                user_id=str(user.user_id),
-                conference_id=str(conference.conference_id),
-                reg_id=request_payload.reg_id
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid registration ID."
             )
-            conference_name_for_response = conference.name
 
-        # --- 7. Role Matching for Events ---
-        user_identifiers_to_match = [request_payload.reg_id]
-        role_match_conditions = []
-        for identifier in user_identifiers_to_match:
-            role_match_conditions += [
-                PgEvent.presenter_reg_ids.any(identifier),
-                PgEvent.exhibitor_reg_ids.any(identifier),
-                PgEvent.speaker_reg_ids.any(identifier)
-            ]
+        # --- 3. Handle Already Claimed ---
+        if registration_record.user_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This registration ID has already been claimed."
+            )
 
-        stmt_events_with_roles = select(PgEvent).filter(
-            PgEvent.conference_id == registration_record.conference_id,
-            or_(*role_match_conditions)
-        )
+        # --- 4. Handle Invalid Status ---
+        if registration_record.status != 'pre_registered':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration ID is not claimable (status = {registration_record.status})."
+            )
 
-        events_with_roles_result = await db.execute(stmt_events_with_roles)
-        related_events = events_with_roles_result.scalars().all()
-
-        for event in related_events:
-            matched_reg_id = request_payload.reg_id
-
-            if user.registration_category == RegistrationCategory.presenter and \
-               event.presenter_reg_ids and matched_reg_id in event.presenter_reg_ids:
-                await create_presenter_event_link_neo4j(
-                    presenter_user_id=str(user.user_id),
-                    event_id=str(event.event_id)
-                )
-
-            elif user.registration_category == RegistrationCategory.exhibitor and \
-                 event.exhibitor_reg_ids and matched_reg_id in event.exhibitor_reg_ids:
-                await create_exhibitor_event_link_neo4j(
-                    exhibitor_user_id=str(user.user_id),
-                    event_id=str(event.event_id)
-                )
-
-            elif user.registration_category == RegistrationCategory.speaker and \
-                 event.speaker_reg_ids and matched_reg_id in event.speaker_reg_ids:
-                await create_speaker_event_link_neo4j(
-                    speaker_user_id=str(user.user_id),
-                    event_id=str(event.event_id)
-                )
-
-        await db.commit()
-        await db.refresh(user)
-
+        # --- 5. Valid & Unclaimed ---
+        action_message = "Registration ID is unclaimed and valid"
+        
         return AttendeeClaimRegistrationResponse(
             message=action_message,
-            user_id=user.user_id,
-            claimed_reg_id=request_payload.reg_id,
-            claimed_conference_id=registration_record.conference_id,
-            conference_name=conference_name_for_response
+            proceed = True
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
-        logger.error(f"Unexpected error during claim: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error while checking claim status: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred. Please try again."
+            detail="An unexpected error occurred."
         )
 """"
 FOR CREATiNG SINGLE EVENt PER CONF

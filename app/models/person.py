@@ -54,10 +54,10 @@ class SingleUserCompany(BaseModel):
 
 # --- USER SCHEMAS (UNCHANGED from your provided) ---
 class UserCreate(BaseModel):
+    registration_id: str
     email: EmailStr
     password_hash: str
-    first_name: str
-    last_name: str
+    full_name: str
     avatar_url: Optional[HttpUrl] = None
     biography: Optional[str] = None
     phone: Optional[str] = None
@@ -66,8 +66,7 @@ class UserCreate(BaseModel):
 class UserRead(BaseModel):
     user_id: UUID
     email: EmailStr
-    first_name: str
-    last_name: str
+    full_name: str
     reg_id: Optional[str] = None
     registration_category: RegistrationCategory
     model_config = ConfigDict(from_attributes=True)
@@ -176,7 +175,4 @@ class AttendeeClaimRegistrationRequest(BaseModel):
 
 class AttendeeClaimRegistrationResponse(BaseModel):
     message: str
-    user_id: UUID
-    claimed_reg_id: str
-    claimed_conference_id: UUID
-    conference_name: str
+    proceed: bool
