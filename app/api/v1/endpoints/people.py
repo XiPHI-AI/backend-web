@@ -66,18 +66,21 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
         select(UserRegistration).filter(UserRegistration.reg_id == user_create_payload.registration_id)
     )
     
-    registration = result.scalars().first()
-    registration.user_id = new_user.user_id
-    registration.claimed_by_user_at = datetime.datetime.now(datetime.timezone.utc)
-    registration.status = "claimed"
-
-    await db.commit()
-    await db.refresh(registration)
+    
 
     db.add(new_user)
 
     await db.commit()
     await db.refresh(new_user)
+
+    registration = result.scalars().first()
+    registration.user_id = new_user.user_id
+    registration.claimed_by_user_at = datetime.now(timezone.utc)
+    registration.status = "claimed"
+
+    await db.commit()
+    await db.refresh(registration)
+    
     neo4j_registration_category = None
     if new_user.registration_category:
     # Check if it's an Enum instance, and if so, get its value.
