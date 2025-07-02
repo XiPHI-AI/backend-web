@@ -51,23 +51,31 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # 2. Create new User in Postgres
-    new_user_uuid = uuid.uuid4()
+    
     new_user = User(
-        user_id=new_user_uuid,
+        user_id=uuid.uuid4(),
         email=user_create_payload.email,
         password_hash=user_create_payload.password_hash,
-        first_name=user_create_payload.first_name,
-        last_name=user_create_payload.last_name,
+        full_name = user_create_payload.full_name,
         avatar_url=user_create_payload.avatar_url,
         biography=user_create_payload.biography,
         phone=user_create_payload.phone,
-        registration_category=user_create_payload.registration_category.value,
-        # FIX: reg_id is NOT taken here, as user won't have it at creation
-        # reg_id=user_create_payload.reg_id,
-        # conference_id is also not taken here.
+        registration_category=user_create_payload.registration_category.value
     )
+    result = await db.execute(
+        select(UserRegistration).filter(UserRegistration.reg_id == user_create_payload.registration_id)
+    )
+    
+    registration = result.scalars().first()
+    registration.user_id = new_user.user_id
+    registration.claimed_by_user_at = datetime.datetime.now(datetime.timezone.utc)
+    registration.status = "claimed"
+
+    await db.commit()
+    await db.refresh(registration)
 
     db.add(new_user)
+
     await db.commit()
     await db.refresh(new_user)
     neo4j_registration_category = None
@@ -83,10 +91,8 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
 
     await create_user_node(
     user_id=str(new_user.user_id),
-    fullName=f"{new_user.first_name} {new_user.last_name}",
     email=new_user.email,
-    first_name=new_user.first_name,
-    last_name=new_user.last_name,
+    full_name = new_user.full_name,
     avatar_url=new_user.avatar_url,
     biography=new_user.biography,
     phone=new_user.phone,
@@ -285,7 +291,7 @@ async def get_recommendations_attendee(
 
         # Step 3: Calculate Final Score and Process Commonalities
         final_recommendations_list = []
-        for uid, user_data in combined_users.items():
+        for _, user_data in combined_users.items():
             demo_score = user_data['Scores']['Demographics']
             interest_score = user_data['Scores']['Interests']
             skill_score = user_data['Scores']['Skills']
@@ -293,9 +299,7 @@ async def get_recommendations_attendee(
             final_weighted_score = 0.0
             
             
-            final_weighted_score = (demo_score * 0.20) + \
-                                       (interest_score * 0.60) + \
-                                       (skill_score * 0.10)
+            final_weighted_score = (demo_score * 0.60) + (interest_score * 0.20) + (skill_score * 0.20)
             
             
             user_data['FinalScore'] = final_weighted_score
