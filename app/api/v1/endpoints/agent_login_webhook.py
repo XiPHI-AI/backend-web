@@ -22,7 +22,7 @@ async def agent_login_via_webhook(request: RegistrationRequest):
     if not request.registration_id:
         raise HTTPException(status_code=400, detail="Registration ID is required.")
 
-    # Step 1: Claim the registration
+    #claim the registration id
     try:
         async with httpx.AsyncClient() as client:
             claim_response = await client.post(CLAIM_REGISTRATION_URL, json={"registration_id": request.registration_id})
@@ -33,7 +33,7 @@ async def agent_login_via_webhook(request: RegistrationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to claim registration: {e}")
 
-    # Step 2: Trigger ElevenLabs webhook with static agent_id
+    #Trigger ElevenLabs webhook with static agent_id
     webhook_payload = WebhookPayload(registration_id=request.registration_id, agent_id=ELEVENLAB_AGENT_ID)
     try:
         async with httpx.AsyncClient() as client:
