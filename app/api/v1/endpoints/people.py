@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 # Ensure User models are correctly imported
 from postgres.models import User, UserSkill,UserLocation, UserInterest, UserJobRole, UserCompany, Event as PgEvent, Conference as PgConference, UserRegistration # NEW: Import UserRegistration
-from app.models.person import UserCreate, UserRead, UserUpdateSchema, RegistrationCategory
+from app.models.person import UserCreate, UserRead, UserUpdateSchema, RegistrationCategory, UserLoginResponse, UserLoginPayload
 from app.db.database import get_db
 from datetime import datetime, timezone
 import uuid
@@ -80,7 +80,7 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
 
     await db.commit()
     await db.refresh(registration)
-    
+
     neo4j_registration_category = None
     if new_user.registration_category:
     # Check if it's an Enum instance, and if so, get its value.
@@ -191,6 +191,25 @@ async def update_user_data(payload: UserUpdateSchema, db: AsyncSession = Depends
     # ... (rest of your endpoint code) ...
     return {"msg": "User update successful"}
 
+@router.post("/login", response_model=UserLoginResponse)
+async def login_user(payload: UserLoginPayload, db: AsyncSession = Depends(get_db)):
+    # 1. Check if user exists
+    result = await db.execute(select(User).filter(User.email == payload.email))
+    user = result.scalars().first()
+    if not user or user.password_hash != payload.password:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # 2. Generate token (opaque string UUID for now)
+    token = str(uuid.uuid4())
+
+    # 3. Return user info + token
+    return UserLoginResponse(
+        user_id=str(user.user_id),
+        name=user.full_name,
+        email=user.email,
+        token=token,
+        registration_category=user.registration_category
+    )
 
 """ @router.get("/recommendations/demographics/{user_id}", response_model=Dict[str, Any])
 async def get_demographics_recommendations_api(

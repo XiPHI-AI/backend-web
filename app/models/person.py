@@ -70,6 +70,17 @@ class UserRead(BaseModel):
     registration_category: RegistrationCategory
     model_config = ConfigDict(from_attributes=True)
 
+class UserLoginPayload(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserLoginResponse(BaseModel):
+    user_id: str
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    token: Optional[str] = None
+    registration_category: Optional[str] = None
+
 class UserUpdateSchema(BaseModel):
     user_id: UUID
     user_skills: Optional[List[SingleUserSkill]] = None
