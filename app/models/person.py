@@ -186,3 +186,30 @@ class AttendeeClaimRegistrationRequest(BaseModel):
 class AttendeeClaimRegistrationResponse(BaseModel):
     message: str
     proceed: bool
+
+class ClaimUserIdRegistration(BaseModel):
+    user_id: str
+    reg_id: str
+
+class ConferencePayload(BaseModel):
+    user_id: str
+    limit: int = Field(10, ge=1, le=100, description="Number of conferences to return")
+    offset: int = Field(0, ge=0, description="Number of conferences to skip")
+    class Config:
+        orm_mode = True  
+
+class ConferenceResponse(BaseModel):
+    conference_id: UUID
+    name: str
+    description: str | None
+    start_date: datetime
+    end_date: datetime
+    location_name: str | None
+    venue_details: str | None
+    logo_url: str | None
+    website_url: str | None
+    valid_from: datetime
+    valid_to: datetime
+
+    class Config:
+        orm_mode = True  

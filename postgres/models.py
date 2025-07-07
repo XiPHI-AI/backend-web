@@ -109,7 +109,7 @@ class Company(Base):
         default=uuid.uuid4
     )
     name = Column(String(255), nullable=False, unique=True)
-    type =Column(String(255),nullable=False,unique=True)
+    type =Column(String(255),nullable=True)
     embedding = Column(Vector(384), nullable=True) # Assuming nullable=True for new column
     valid_from = Column(
         DateTime(timezone=True),
@@ -314,7 +314,7 @@ class SkillInterest(Base):
         default=uuid.uuid4
     )
     name = Column(String(255), nullable=False)
-    category = Column(String(100), nullable=False)
+    category = Column(String(255), nullable=True)
     embedding = Column(Vector(384), nullable=True)
     valid_from = Column(
         DateTime(timezone=True),

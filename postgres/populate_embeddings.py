@@ -62,6 +62,7 @@ def populate_table_from_file(table_class, file_path):
             
             record = table_class(
                 name=name,
+                type = "place_holder",
                 embedding=embedding,
                 valid_from=now_utc,
                 valid_to=far_future

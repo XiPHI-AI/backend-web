@@ -161,7 +161,7 @@ class PeopleService:
 
         # Handle location update
         if hasattr(update_data, 'current_location_name') and update_data.current_location_name:
-            await update_user_location_neo40j(user_id_str, update_data.current_location_name) # Fix typo if not already: update_user_location_neo4j
+            await update_user_location_neo4j(user_id_str, update_data.current_location_name) # Fix typo if not already: update_user_location_neo4j
 
         await self.db.commit() # Commit all Postgres changes
         await self.db.refresh(user_db) # Refresh user_db to reflect any changes

@@ -1,15 +1,18 @@
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 # Ensure User models are correctly imported
-from postgres.models import User, UserSkill,UserLocation, UserInterest, UserJobRole, UserCompany, Event as PgEvent, Conference as PgConference, UserRegistration # NEW: Import UserRegistration
-from app.models.person import UserCreate, UserRead, UserUpdateSchema, RegistrationCategory, UserLoginResponse, UserLoginPayload
+from postgres.models import User, UserSkill,UserLocation, UserInterest, UserJobRole, UserCompany, Event as PgEvent, Conference as PgConference, UserRegistration, Location # NEW: Import UserRegistration
+from app.models.person import UserCreate, UserRead, UserUpdateSchema, RegistrationCategory, UserLoginResponse, UserLoginPayload, ConferenceResponse, ConferencePayload, ClaimUserIdRegistration
 from app.db.database import get_db
 from datetime import datetime, timezone
 import uuid
 import asyncio
 from uuid import UUID
+from sqlalchemy import select, update
+from sqlalchemy.orm import joinedload
+
 # Import Neo4j CRUD functions
 from app.db.neo4j import (
     create_user_node, create_or_update_user_skill_neo4j,
@@ -117,17 +120,10 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
 @router.post("/update")
 async def update_user_data(payload: UserUpdateSchema, db: AsyncSession = Depends(get_db)):
     user_id = str(payload.user_id) # Ensure user_id is string UUID
-    
-
-    
 
     now_utc = datetime.now(timezone.utc)
     infinity_date = datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
 
-    
-        
-
-       
     # --- Update Skills (remains unchanged) ---
     if payload.user_skills:
         for skill_payload in payload.user_skills:
@@ -211,61 +207,50 @@ async def login_user(payload: UserLoginPayload, db: AsyncSession = Depends(get_d
         registration_category=user.registration_category
     )
 
-""" @router.get("/recommendations/demographics/{user_id}", response_model=Dict[str, Any])
-async def get_demographics_recommendations_api(
-    user_id: str,
-    people_service: PeopleService = Depends(get_people_service_dependency)
-):
 
-    Fetches people recommendations based primarily on demographic similarity
-    (company, location, university).
 
-    try:
-        recommendations = await people_service.get_demographics_based_recommendations(user_id, limit=5)
-        return {
-            "user_id": user_id,
-            "category": "People For You (Demographics)",
-            "recommendations": recommendations
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching demographics recommendations: {e}")
- 
-@router.get("/recommendations/interests/{user_id}", response_model=Dict[str, Any])
-async def get_interests_recommendations_api(
-    user_id: str,
-    people_service: PeopleService = Depends(get_people_service_dependency)
+@router.get("/users/{user_id}/conferences", response_model=List[ConferenceResponse])
+async def get_user_conferences(
+    payload: ConferencePayload,
+    db: AsyncSession = Depends(get_db)
 ):
-    
-    try:
-        recommendations = await people_service.get_similar_interests_recommendations(user_id, limit=5)
-        return {
-            "user_id": user_id,
-            "category": "People with Similar Interests",
-            "recommendations": recommendations
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching interests recommendations: {e}")
+    # Query UserRegistration for active registrations
+    result = await db.execute(
+        select(UserRegistration.conference_id)
+        .where(
+            UserRegistration.user_id == payload.user_id,
+            UserRegistration.status.in_(["claimed"]),
+            UserRegistration.valid_to > datetime.now(timezone.utc)
+        )
+        .limit(payload.limit)
+        .offset(payload.offset)
+    )
+    registrations = result.scalars().all()
+    print(f"Registrations:{registrations}")
+    if not registrations:
+        return []
 
-@router.get("/recommendations/skills/{user_id}", response_model=Dict[str, Any])
-async def get_skills_recommendations_api(
-    user_id: str,
-    people_service: PeopleService = Depends(get_people_service_dependency)
-):
-    
-    try:
-        recommendations = await people_service.get_similar_skills_recommendations(user_id, limit=5)
-        return {
-            "user_id": user_id,
-            "category": "People with Similar Skills",
-            "recommendations": recommendations
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching skills recommendations: {e}")
-    
-#ajfadlfad
-"""
+    # Get conference IDs
+    conference_ids = [reg for reg in registrations]
+
+    # Query Conferences with joined Location
+    result = await db.execute(
+        select(PgConference)
+        .options(joinedload(PgConference.location_rel))  # Eagerly load location_rel
+        .where(
+            PgConference.conference_id.in_(conference_ids),
+            PgConference.valid_to > datetime.now(timezone.utc)
+        )
+        .limit(payload.limit)
+        .offset(payload.offset)
+    )
+    conferences = result.scalars().all()
+
+    return conferences
+
 @router.get("/recommendations/reg_id/{user_id}", response_model=Dict[str, Any])
 async def get_recommendations_attendee(
+    
     user_id: str,
     limit: int = 100, # Allow a higher limit for the unified list
     people_service: PeopleService = Depends(get_people_service_dependency)

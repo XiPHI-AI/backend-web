@@ -15,7 +15,7 @@ import io
 import logging
 logger = logging.getLogger(__name__) # Good practice for logging
 from app.db.neo4j import create_user_conference_registration_neo4j
-from app.models.person import AttendeeClaimRegistrationRequest, AttendeeClaimRegistrationResponse 
+from app.models.person import AttendeeClaimRegistrationRequest, AttendeeClaimRegistrationResponse, ClaimUserIdRegistration
 # Import Postgres models related to events/conferences/sessions
 # YOU MUST ADAPT THESE IMPORTS BASED ON YOUR ACTUAL POSTGRES MODEL FILE
 from postgres.models import Event as PgEvent # Your 'events' table model
@@ -29,6 +29,7 @@ from postgres.models import RegistrationCategory
 from postgres.models import Location
 from pydantic import ValidationError, HttpUrl
 from sqlalchemy.orm import selectinload
+from sqlalchemy import update
 # Import Neo4j CRUD functions for Conference/Event
 from app.db.neo4j import (
     create_conference_node_neo4j, create_event_node_neo4j,
@@ -448,6 +449,75 @@ async def check_registration_claim_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred."
         )
+
+@router.post("/users/{user_id}/claim-registration")
+async def claim_registration(
+    payload: ClaimUserIdRegistration,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        # --- 1. Fetch User from Token ---
+        # Placeholder: replace with actual token validation
+        
+
+        # --- 2. Fetch Registration Record ---
+        stmt = select(UserRegistration).filter(
+            UserRegistration.reg_id == payload.reg_id
+        )
+        result = await db.execute(stmt)
+        registration_record = result.scalars().first()
+
+        # --- 3. Handle Not Found ---
+        if not registration_record:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid registration ID."
+            )
+
+        # --- 4. Handle Already Claimed ---
+        if registration_record.user_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="This registration ID has already been claimed."
+            )
+
+        # --- 5. Handle Invalid Status ---
+        if registration_record.status != 'pre_registered':
+            raise HTTPException(
+                status_code=400,
+                detail=f"Registration ID is not claimable (status = {registration_record.status})."
+            )
+
+        # --- 6. Claim the Registration ---
+        await db.execute(
+            update(UserRegistration)
+            .where(UserRegistration.reg_id == payload.reg_id)
+            .values(
+                user_id=payload.user_id,
+                status="claimed",
+                valid_from=datetime.now(timezone.utc),
+                valid_to=datetime.max.replace(tzinfo=timezone.utc)
+            )
+        )
+        await db.commit()
+
+        # --- 7. Return True ---
+        action_message = "Registration ID is unclaimed and valid"
+        
+        return AttendeeClaimRegistrationResponse(
+            message=action_message,
+            proceed = True
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error while claiming registration: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred."
+        ) 
+
 """"
 FOR CREATiNG SINGLE EVENt PER CONF
 @router.post("/conferences/{conference_id_from_url}/events/", response_model=EventRead, status_code=status.HTTP_201_CREATED)

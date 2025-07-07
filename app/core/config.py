@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # PostgreSQL Settings
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
-    POSTGRES_HOST: str = "localhost"
+    POSTGRES_HOST: str = "pg-xiphi-dev-01.postgres.database.azure.com"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str
 
