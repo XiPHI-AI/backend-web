@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
 
     # Neo4j Settings
-    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_URI: str = "neo4j:// 20.42.92.97:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str
+    NEO4J_PASSWORD: str = "vA6TEyAUf82J2Wi"
 
     class Config:
         env_file = ".env"
