@@ -1,6 +1,6 @@
 # app/api/v1/endpoints/events.py
 
-from fastapi import APIRouter, Depends, HTTPException, status,UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status,UploadFile, File, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.dialects.postgresql import ARRAY 
@@ -452,7 +452,8 @@ async def check_registration_claim_status(
 
 @router.post("/users/{user_id}/claim-registration")
 async def claim_registration(
-    payload: ClaimUserIdRegistration,
+    user_id: UUID,
+    reg_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     try:
@@ -462,7 +463,7 @@ async def claim_registration(
 
         # --- 2. Fetch Registration Record ---
         stmt = select(UserRegistration).filter(
-            UserRegistration.reg_id == payload.reg_id
+            UserRegistration.reg_id == reg_id
         )
         result = await db.execute(stmt)
         registration_record = result.scalars().first()
@@ -491,9 +492,9 @@ async def claim_registration(
         # --- 6. Claim the Registration ---
         await db.execute(
             update(UserRegistration)
-            .where(UserRegistration.reg_id == payload.reg_id)
+            .where(UserRegistration.reg_id == reg_id)
             .values(
-                user_id=payload.user_id,
+                user_id=user_id,
                 status="claimed",
                 valid_from=datetime.now(timezone.utc),
                 valid_to=datetime.max.replace(tzinfo=timezone.utc)

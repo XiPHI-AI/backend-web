@@ -211,19 +211,21 @@ async def login_user(payload: UserLoginPayload, db: AsyncSession = Depends(get_d
 
 @router.get("/users/{user_id}/conferences", response_model=List[ConferenceResponse])
 async def get_user_conferences(
-    payload: ConferencePayload,
+    user_id: UUID,
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
     # Query UserRegistration for active registrations
     result = await db.execute(
         select(UserRegistration.conference_id)
         .where(
-            UserRegistration.user_id == payload.user_id,
+            UserRegistration.user_id == user_id,
             UserRegistration.status.in_(["claimed"]),
             UserRegistration.valid_to > datetime.now(timezone.utc)
         )
-        .limit(payload.limit)
-        .offset(payload.offset)
+        .limit(limit)
+        .offset(offset)
     )
     registrations = result.scalars().all()
     print(f"Registrations:{registrations}")
@@ -241,16 +243,14 @@ async def get_user_conferences(
             PgConference.conference_id.in_(conference_ids),
             PgConference.valid_to > datetime.now(timezone.utc)
         )
-        .limit(payload.limit)
-        .offset(payload.offset)
+        .limit(limit)
+        .offset(offset)
     )
     conferences = result.scalars().all()
-
     return conferences
 
 @router.get("/recommendations/reg_id/{user_id}", response_model=Dict[str, Any])
 async def get_recommendations_attendee(
-    
     user_id: str,
     limit: int = 100, # Allow a higher limit for the unified list
     people_service: PeopleService = Depends(get_people_service_dependency)
