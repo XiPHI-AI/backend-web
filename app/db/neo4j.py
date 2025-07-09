@@ -339,8 +339,7 @@ async def create_conference_node_if_not_exists(conference_id: str):
     """
     async with driver.session() as session:
         result = await session.run(query, conference_id=conference_id)
-        record = await result.single()
-        print(record)
+        return result
 
 
 async def link_user_to_conference(user_id: str, conference_id: str, relationship_type: str):
@@ -373,8 +372,7 @@ async def link_user_to_conference(user_id: str, conference_id: str, relationship
             "user_id": user_id,
             "conference_id": conference_id
         })
-        record = await result.single()
-        return record["rel_type"]
+        return result
 
 
 
