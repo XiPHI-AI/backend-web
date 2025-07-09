@@ -31,8 +31,11 @@ from pydantic import ValidationError, HttpUrl
 from sqlalchemy.orm import selectinload
 from sqlalchemy import update
 # Import Neo4j CRUD functions for Conference/Event
+from neo4j.exceptions import ServiceUnavailable
 from app.db.neo4j import (
-    create_conference_node_neo4j, create_event_node_neo4j,
+    create_event_node_neo4j,
+    create_conference_node_if_not_exists,
+    link_user_to_conference,
     create_presenter_event_link_neo4j, create_exhibitor_event_link_neo4j,
     create_user_conference_registration_neo4j,create_speaker_event_link_neo4j,update_user_node_neo4j
 )
@@ -54,72 +57,72 @@ from app.db.database import get_db
 router = APIRouter()
 
 
-@router.post("/conferences/", response_model=ConferenceRead, status_code=status.HTTP_201_CREATED)
-async def create_conference_api(conference_payload: ConferenceCreate, db: AsyncSession = Depends(get_db)):
-    """
-    Creates a new Conference record in PostgreSQL (conferences table) and synchronizes it to Neo4j.
-    Location is now canonicalized via find_or_create_location.
-    """
-    new_conference_uuid = uuid.uuid4()
+# @router.post("/conferences/", response_model=ConferenceRead, status_code=status.HTTP_201_CREATED)
+# async def create_conference_api(conference_payload: ConferenceCreate, db: AsyncSession = Depends(get_db)):
+#     """
+#     Creates a new Conference record in PostgreSQL (conferences table) and synchronizes it to Neo4j.
+#     Location is now canonicalized via find_or_create_location.
+#     """
+#     new_conference_uuid = uuid.uuid4()
 
-    organizer_pg_id = None
-    if conference_payload.organizer_id:
-        organizer_result = await db.execute(select(User).filter(User.user_id == conference_payload.organizer_id))
-        organizer_pg = organizer_result.scalars().first()
-        if not organizer_pg:
-            raise HTTPException(status_code=404, detail=f"Organizer User with ID {conference_payload.organizer_id} not found.")
-        organizer_pg_id = organizer_pg.user_id
+#     organizer_pg_id = None
+#     if conference_payload.organizer_id:
+#         organizer_result = await db.execute(select(User).filter(User.user_id == conference_payload.organizer_id))
+#         organizer_pg = organizer_result.scalars().first()
+#         if not organizer_pg:
+#             raise HTTPException(status_code=404, detail=f"Organizer User with ID {conference_payload.organizer_id} not found.")
+#         organizer_pg_id = organizer_pg.user_id
 
-    # Process location_name to get canonical location_id
-    location_pg_id = None
-    neo4j_location_name = None
-    if conference_payload.location_name:
-        location_info = await find_or_create_location(db, conference_payload.location_name)
-        location_pg_id = UUID(location_info["location_id"])
-        neo4j_location_name = location_info["name"]
+#     # Process location_name to get canonical location_id
+#     location_pg_id = None
+#     neo4j_location_name = None
+#     if conference_payload.location_name:
+#         location_info = await find_or_create_location(db, conference_payload.location_name)
+#         location_pg_id = UUID(location_info["location_id"])
+#         neo4j_location_name = location_info["name"]
 
-    # Create record in Postgres 'conferences' table
-    pg_conference = PgConference(
-        conference_id=new_conference_uuid,
-        name=conference_payload.name,
-        description=conference_payload.description,
-        start_date=conference_payload.start_date,
-        end_date=conference_payload.end_date,
-        location_id=location_pg_id, # Store the canonical location ID
-        venue_details=conference_payload.venue_details,
-        organizer_id=organizer_pg_id,
-        logo_url=str(conference_payload.logo_url) if conference_payload.logo_url else None,
-        website_url=str(conference_payload.website_url) if conference_payload.website_url else None
-    )
-    db.add(pg_conference)
-    await db.commit() # Commit the new conference to the DB
+#     # Create record in Postgres 'conferences' table
+#     pg_conference = PgConference(
+#         conference_id=new_conference_uuid,
+#         name=conference_payload.name,
+#         description=conference_payload.description,
+#         start_date=conference_payload.start_date,
+#         end_date=conference_payload.end_date,
+#         location_id=location_pg_id, # Store the canonical location ID
+#         venue_details=conference_payload.venue_details,
+#         organizer_id=organizer_pg_id,
+#         logo_url=str(conference_payload.logo_url) if conference_payload.logo_url else None,
+#         website_url=str(conference_payload.website_url) if conference_payload.website_url else None
+#     )
+#     db.add(pg_conference)
+#     await db.commit() # Commit the new conference to the DB
 
-    # --- FIX FOR MISSINGGREENLET ERROR ---
-    # After commit, the object is detached or relationships might not be loaded.
-    # Re-query the object and eagerly load the 'location_rel' relationship.
-    stmt_loaded_conference = select(PgConference).options(selectinload(PgConference.location_rel)).filter(
-        PgConference.conference_id == pg_conference.conference_id # Filter by the ID of the conference we just created
-    )
-    result_loaded_conference = await db.execute(stmt_loaded_conference)
-    pg_conference_loaded = result_loaded_conference.scalar_one_or_none()
+#     # --- FIX FOR MISSINGGREENLET ERROR ---
+#     # After commit, the object is detached or relationships might not be loaded.
+#     # Re-query the object and eagerly load the 'location_rel' relationship.
+#     stmt_loaded_conference = select(PgConference).options(selectinload(PgConference.location_rel)).filter(
+#         PgConference.conference_id == pg_conference.conference_id # Filter by the ID of the conference we just created
+#     )
+#     result_loaded_conference = await db.execute(stmt_loaded_conference)
+#     pg_conference_loaded = result_loaded_conference.scalar_one_or_none()
     
-    if not pg_conference_loaded: # This should ideally not happen after a successful commit
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve newly created conference with location data for response.")
+#     if not pg_conference_loaded: # This should ideally not happen after a successful commit
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve newly created conference with location data for response.")
 
-    # Synchronize to Neo4j (use the eagerly loaded object for its properties)
-    await create_conference_node_neo4j(
-        conference_id=str(pg_conference_loaded.conference_id), # Use loaded object
-        name=pg_conference_loaded.name,
-        description=pg_conference_loaded.description,
-        start_date=pg_conference_loaded.start_date,
-        end_date=pg_conference_loaded.end_date,
-        location=pg_conference_loaded.location_name, # Accesses the @property which now has loaded relationship
-        organizer_id=str(organizer_pg_id) if organizer_pg_id else None,
-        logo_url=pg_conference_loaded.logo_url,
-        website_url=pg_conference_loaded.website_url
-    )
-    # Return using the eagerly loaded object
-    return ConferenceRead.from_orm(pg_conference_loaded)
+#     # Synchronize to Neo4j (use the eagerly loaded object for its properties)
+#     await create_conference_node_neo4j(
+#         conference_id=str(pg_conference_loaded.conference_id), # Use loaded object
+#         name=pg_conference_loaded.name,
+#         description=pg_conference_loaded.description,
+#         start_date=pg_conference_loaded.start_date,
+#         end_date=pg_conference_loaded.end_date,
+#         location=pg_conference_loaded.location_name, # Accesses the @property which now has loaded relationship
+#         organizer_id=str(organizer_pg_id) if organizer_pg_id else None,
+#         logo_url=pg_conference_loaded.logo_url,
+#         website_url=pg_conference_loaded.website_url
+#     )
+#     # Return using the eagerly loaded object
+#     return ConferenceRead.from_orm(pg_conference_loaded)
 
 # ... (rest of the file remains unchanged) ...
 # --- Endpoint to Create a New Event (Component) for a Conference ---
@@ -501,6 +504,37 @@ async def claim_registration(
             )
         )
         await db.commit()
+        # Fetch full registration after update
+        result = await db.execute(
+            select(UserRegistration).filter(UserRegistration.reg_id == reg_id)
+        )
+        updated_registration = result.scalars().first()
+
+        if updated_registration and updated_registration.conference_id:
+            # Derive relationship type
+            relationship = {
+                "attendee": "ATTENDS",
+                "exhibitor": "EXHIBITS",
+                "speaker": "SPEAKS_AT"
+            }.get(updated_registration.registration_category.name, "PARTICIPATES")
+
+    # Make sure Neo4j node exists
+            try:
+                await create_conference_node_if_not_exists(
+                    conference_id=str(updated_registration.conference_id)
+                )
+
+    # Create Neo4j relationship
+                await link_user_to_conference(
+                    user_id=str(user_id),
+                    conference_id=str(updated_registration.conference_id),
+                    relationship_type=relationship
+                )
+            except ServiceUnavailable:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Could not connect to Neo4j database."
+                )
 
         # --- 7. Return True ---
         action_message = "Registration ID is unclaimed and valid"

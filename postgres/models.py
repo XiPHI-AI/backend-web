@@ -241,7 +241,14 @@ class UserRegistration(Base):
 
     # Added status column
     status = Column(String(50), nullable=False, default="pre_registered") # e.g., 'pre_registered', 'claimed', 'cancelled'
-
+    registration_category = Column(
+        Enum(
+            RegistrationCategory,
+            name="registration_category"
+        ),
+        nullable=True,
+        default=RegistrationCategory.attendee
+    )
     # valid_from and valid_to with your specified defaults and nullable=False
     valid_from = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     valid_to = Column(DateTime(timezone=True), nullable=False, server_default=text("'infinity'"))

@@ -18,7 +18,8 @@ from app.db.neo4j import (
     create_user_node, create_or_update_user_skill_neo4j,
     create_or_update_user_interest_neo4j, create_or_update_user_job_role_neo4j,
     create_or_update_user_company_neo4j, update_user_location_neo4j,
-    create_user_conference_registration_neo4j # For user-conference registration
+    create_conference_node_if_not_exists,
+    link_user_to_conference # For user-conference registration
 )
 
 from app.services.process import ( # Assuming these are defined in app.services.process.py
@@ -107,8 +108,23 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
     # REVERTED: No initial connections based on UserCreate payload for now, or reg_id linking
     # These functions now await correctly in update_user_data.
 
-    
-    
+    if registration and registration.conference_id:
+        relationship = {
+            "attendee": "ATTENDS",
+            "exhibitor": "EXHIBITS",
+            "speaker": "SPEAKS_AT"
+        }.get(neo4j_registration_category.lower(), "PARTICIPATES")
+
+        await create_conference_node_if_not_exists(
+        conference_id=str(registration.conference_id)
+        )
+
+        await link_user_to_conference(
+            user_id=str(new_user.user_id),
+            conference_id=str(registration.conference_id),
+            relationship_type=relationship
+        )
+
     # Ensure UserRead returns correct data (reg_id will be None initially)
     new_user_read_response = UserRead.from_orm(new_user)
     # new_user_read_response.reg_id will be None as per Postgres model

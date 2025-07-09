@@ -331,50 +331,52 @@ async def update_user_location_neo4j(user_id: str, location_name: str, location_
         await session.run(query, user_id=user_id, location_name=location_name, location_type=location_type)
         print(f"Neo4j: User {user_id} LIVES_IN {location_name}")
 
-async def create_conference_node_neo4j(
-    conference_id: str, name: str, description: Optional[str],
-    start_date: datetime, end_date: datetime, location: Optional[str],
-    organizer_id: Optional[str] = None,
-    logo_url: Optional[str] = None,
-    website_url: Optional[str] = None
-):
+
+async def create_conference_node_if_not_exists(conference_id: str):
+    driver = await get_neo4j_async_driver()
+    query = """
+    MERGE (c:Conference {conference_id: $conference_id})
+    """
+    async with driver.session() as session:
+        result = await session.run(query, conference_id=conference_id)
+        record = await result.single()
+        print(record)
+
+
+async def link_user_to_conference(user_id: str, conference_id: str, relationship_type: str):
+    category = relationship_type
+
+    if category == "ATTENDS":
+        query = """
+        MATCH (u:User {userID: $user_id}), (c:Conference {conference_id: $conference_id})
+        MERGE (u)-[r:ATTENDS]->(c)
+        RETURN type(r) AS rel_type
+        """
+    elif category == "EXHIBITS":
+        query = """
+        MATCH (u:User {userID: $user_id}), (c:Conference {conference_id: $conference_id})
+        MERGE (u)-[r:EXHIBITS]->(c)
+        RETURN type(r) AS rel_type
+        """
+    elif category == "SPEAKS_AT":
+        query = """
+        MATCH (u:User {userID: $user_id}), (c:Conference {conference_id: $conference_id})
+        MERGE (u)-[r:SPEAKS_AT]->(c)
+        RETURN type(r) AS rel_type
+        """
+    else:
+        raise ValueError(f"Unknown registration category: {category}")
+
     driver = await get_neo4j_async_driver()
     async with driver.session() as session:
-        query = """
-        MERGE (c:Conference {conferenceID: $conference_id})
-        ON CREATE SET
-            c.name = $name, c.description = $description,
-            c.start_date = $start_date, c.end_date = $end_date,
-            c.location = $location, c.logo_url = $logo_url, c.website_url = $website_url
-        ON MATCH SET
-            c.name = $name, c.description = $description,
-            c.start_date = $start_date, c.end_date = $end_date,
-            c.location = $location, c.logo_url = $logo_url, c.website_url = $website_url
-        """
-        params = {
-            "conference_id": conference_id, "name": name, "description": description,
-            "start_date": start_date, "end_date": end_date, "location": location,
-            "logo_url": logo_url, "website_url": website_url
-        }
-        await session.run(query, params)
+        result = await session.run(query, {
+            "user_id": user_id,
+            "conference_id": conference_id
+        })
+        record = await result.single()
+        return record["rel_type"]
 
-        if organizer_id:
-            await session.run(
-                """
-                MERGE (o:User {userID: $organizer_id})
-                ON CREATE SET o.registration_category = 'organizer'
-                """,
-                organizer_id=organizer_id
-            )
-            await session.run(
-                """
-                MATCH (o:User {userID: $organizer_id})
-                MATCH (c:Conference {conferenceID: $conference_id})
-                MERGE (o)-[:ORGANIZES]->(c)
-                """,
-                organizer_id=organizer_id, conference_id=conference_id
-            )
-        print(f"Neo4j: Created/Updated Conference node for {name} (ID: {conference_id})")
+
 
 
 # UPDATED: create_event_node_neo4j to store organizer identifiers as properties and link to :Topic
