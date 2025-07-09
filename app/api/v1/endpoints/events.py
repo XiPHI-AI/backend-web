@@ -509,7 +509,7 @@ async def claim_registration(
             select(UserRegistration).filter(UserRegistration.reg_id == reg_id)
         )
         updated_registration = result.scalars().first()
-
+        print(updated_registration)
         if updated_registration and updated_registration.conference_id:
             # Derive relationship type
             relationship = {

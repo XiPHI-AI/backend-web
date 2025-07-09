@@ -66,6 +66,7 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
         phone=user_create_payload.phone,
         registration_category=user_create_payload.registration_category
     )
+    
     result = await db.execute(
         select(UserRegistration).filter(UserRegistration.reg_id == user_create_payload.registration_id)
     )
@@ -86,11 +87,12 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
     await db.refresh(registration)
 
     neo4j_registration_category = None
+    
     if new_user.registration_category:
     # Check if it's an Enum instance, and if so, get its value.
     # Otherwise, assume it's already a string (less likely to be hit if ORM rehydrates).
         if isinstance(new_user.registration_category, RegistrationCategory):
-            neo4j_registration_category = new_user.registration_category.value
+            neo4j_registration_category = new_user.registration_category.name
         else:
         # This case handles scenarios where it might already be a string for some reason
             neo4j_registration_category = str(new_user.registration_category) 
@@ -113,7 +115,7 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
             "attendee": "ATTENDS",
             "exhibitor": "EXHIBITS",
             "speaker": "SPEAKS_AT"
-        }.get(neo4j_registration_category.lower(), "PARTICIPATES")
+        }.get(user_create_payload.registration_category, "PARTICIPATES")
 
         await create_conference_node_if_not_exists(
         conference_id=str(registration.conference_id)

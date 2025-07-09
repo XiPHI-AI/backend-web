@@ -344,7 +344,6 @@ async def create_conference_node_if_not_exists(conference_id: str):
 
 async def link_user_to_conference(user_id: str, conference_id: str, relationship_type: str):
     category = relationship_type
-
     if category == "ATTENDS":
         query = """
         MATCH (u:User {userID: $user_id}), (c:Conference {conference_id: $conference_id})
