@@ -64,7 +64,7 @@ async def create_user(user_create_payload: UserCreate, db: AsyncSession = Depend
         avatar_url=user_create_payload.avatar_url,
         biography=user_create_payload.biography,
         phone=user_create_payload.phone,
-        registration_category=user_create_payload.registration_category.value
+        registration_category=user_create_payload.registration_category
     )
     result = await db.execute(
         select(UserRegistration).filter(UserRegistration.reg_id == user_create_payload.registration_id)
